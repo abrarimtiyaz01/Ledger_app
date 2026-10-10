@@ -128,8 +128,8 @@ function del(id){D=D.filter(function(e){return e.id!==id});save();render()}
 function wa(e){
   var b=inr(bal(e)),n=e.note?' ('+e.note+')':'';
   var m=e.dir==='recv'
-   ?'Namaste '+e.party+', as per my khata you owe '+b+n+'. Please reply YES to confirm, or tell me if it differs. Thank you.'
-   :'Namaste '+e.party+', as per my records I owe you '+b+n+'. Please confirm if this matches your books.';
+   ?'Hello '+e.party+', as per my khata you owe '+b+n+'. Please reply YES to confirm, or tell me if it differs. Thank you.'
+   :'Hello '+e.party+', as per my records I owe you '+b+n+'. Please confirm if this matches your books.';
   return 'https://wa.me/'+(e.phone?(e.phone.length===10?'91'+e.phone:e.phone):'')+'?text='+encodeURIComponent(m);
 }
 function render(){
