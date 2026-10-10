@@ -39,12 +39,33 @@ input,select{font:inherit;width:100%;padding:10px;border-radius:8px;border:1px s
 .row{display:flex;gap:8px}.row>*{flex:1}
 .em{text-align:center;color:var(--mu);padding:30px 10px}
 .pay{display:flex;gap:6px;margin-top:8px}.pay input{margin:0}
+.auth{max-width:420px;margin:0 auto;padding:40px 16px}
+.auth .box{padding:18px}.err{color:var(--dg);font-size:13px;min-height:18px;margin-bottom:6px}
+.lnk{background:none;border:0;color:var(--ac);padding:4px 0;text-decoration:underline}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 </style>
 </head>
 <body>
-<div class="w">
+<div id="auth" class="auth" style="display:none">
   <h1>KhataSync</h1>
-  <p class="sub">Test build · one ledger, two views. Data stays on this device.</p>
+  <p class="sub">One ledger for customers and suppliers. Your data is stored only on this device, separately for each account.</p>
+  <div class="box">
+    <b id="a-title">Create your account</b>
+    <div style="height:10px"></div>
+    <input id="a-name" placeholder="Your name">
+    <input id="a-shop" placeholder="Shop / business name (optional)">
+    <input id="a-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="Mobile number (10 digits)">
+    <input id="a-pin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN (4 to 6 digits)">
+    <div class="err" id="a-err"></div>
+    <button class="pr" style="width:100%;padding:11px" id="a-go" onclick="submitAuth()">Sign up</button>
+    <div style="text-align:center;margin-top:10px"><button class="lnk" id="a-sw" onclick="authMode(mode==='signup'?'login':'signup')">Already have an account? Log in</button></div>
+  </div>
+  <p class="nt" style="margin-top:12px">Note: there is no server, so a forgotten PIN cannot be recovered and clearing browser data erases the account.</p>
+</div>
+<div id="app" style="display:none">
+<div class="w">
+  <div class="top"><div><h1 id="hn">KhataSync</h1><p class="sub" id="hs">One ledger, two views. Data stays on this device.</p></div>
+  <button onclick="logout()">Log out</button></div>
   <div class="sum">
     <div class="box"><small>You will receive</small><b class="rv" id="tr">₹0</b></div>
     <div class="box"><small>You have to pay</small><b class="pv" id="tp">₹0</b></div>
@@ -58,6 +79,7 @@ input,select{font:inherit;width:100%;padding:10px;border-radius:8px;border:1px s
     <button onclick="demo()">Load sample data</button>
     <button onclick="csv()">Export CSV</button>
     <button class="dg" onclick="clr()" id="clr">Clear all</button>
+    <button class="dg" onclick="delAcct()" id="da">Delete account</button>
   </div>
 </div>
 <button class="fab" onclick="openAdd()">+ Add entry</button>
@@ -75,9 +97,9 @@ input,select{font:inherit;width:100%;padding:10px;border-radius:8px;border:1px s
     <div class="row"><button onclick="closeAdd()">Cancel</button><button class="pr" onclick="add()">Save</button></div>
   </div>
 </div>
-
+</div>
 <script>
-var KEY='khatasync_v1',D=[],tab='recv',payId=null;
+var KEY='',D=[],tab='recv',payId=null;
 function load(){try{D=JSON.parse(localStorage.getItem(KEY)||'[]')||[]}catch(e){D=[]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(D))}catch(e){}}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -161,7 +183,66 @@ function clr(){
   if(!armed){armed=true;b.textContent='Tap again to confirm';setTimeout(function(){armed=false;b.textContent='Clear all'},3000);return}
   D=[];save();armed=false;b.textContent='Clear all';render();
 }
-load();render();
+var UK='khatasync_users',SK='khatasync_session',mode='signup',cur=null;
+function jget(k,d){try{var v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}}
+function jset(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+async function hashPin(s){
+  try{var b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0')}).join('')}
+  catch(e){var h=5381;for(var i=0;i<s.length;i++)h=((h*33)^s.charCodeAt(i))>>>0;return 'f'+h.toString(16)}
+}
+function authMode(m){
+  mode=m;var su=m==='signup';
+  document.getElementById('a-title').textContent=su?'Create your account':'Log in';
+  document.getElementById('a-go').textContent=su?'Sign up':'Log in';
+  document.getElementById('a-sw').textContent=su?'Already have an account? Log in':'New here? Create an account';
+  document.getElementById('a-name').style.display=su?'':'none';
+  document.getElementById('a-shop').style.display=su?'':'none';
+  document.getElementById('a-err').textContent='';
+}
+async function submitAuth(){
+  var err=document.getElementById('a-err'),name=document.getElementById('a-name').value.trim(),
+  shop=document.getElementById('a-shop').value.trim(),ph=document.getElementById('a-phone').value.replace(/\D/g,''),
+  pin=document.getElementById('a-pin').value,users=jget(UK,{});
+  if(!/^\d{10}$/.test(ph)){err.textContent='Enter a 10-digit mobile number';return}
+  if(!/^\d{4,6}$/.test(pin)){err.textContent='PIN must be 4 to 6 digits';return}
+  if(mode==='signup'){
+    if(!name){err.textContent='Enter your name';return}
+    if(users[ph]){err.textContent='This number already has an account on this device. Log in instead.';return}
+    var salt=Math.random().toString(36).slice(2);
+    users[ph]={name:name,shop:shop,salt:salt,h:await hashPin(salt+pin)};jset(UK,users);enter(ph);
+  }else{
+    var u=users[ph];
+    if(!u||u.h!==await hashPin(u.salt+pin)){err.textContent='Wrong number or PIN (accounts are stored per device)';return}
+    enter(ph);
+  }
+}
+function enter(ph){
+  var u=jget(UK,{})[ph];if(!u)return;
+  cur=ph;jset(SK,ph);KEY='khatasync_data_'+ph;tab='recv';payId=null;load();
+  ['a-name','a-shop','a-phone','a-pin'].forEach(function(i){document.getElementById(i).value=''});
+  document.getElementById('hn').textContent=u.shop||'KhataSync';
+  document.getElementById('hs').textContent='Hi '+u.name+' · your data stays on this device';
+  document.getElementById('auth').style.display='none';document.getElementById('app').style.display='';
+  render();
+}
+function logout(){
+  try{localStorage.removeItem(SK)}catch(e){}
+  cur=null;KEY='';D=[];document.getElementById('app').style.display='none';
+  document.getElementById('auth').style.display='';authMode('login');
+}
+var daArmed=false;
+function delAcct(){
+  var b=document.getElementById('da');
+  if(!daArmed){daArmed=true;b.textContent='Tap again to delete everything';setTimeout(function(){daArmed=false;b.textContent='Delete account'},3000);return}
+  var users=jget(UK,{});delete users[cur];jset(UK,users);
+  try{localStorage.removeItem('khatasync_data_'+cur)}catch(e){}
+  daArmed=false;b.textContent='Delete account';logout();authMode('signup');
+}
+(function(){
+  var ph=jget(SK,null),users=jget(UK,{});
+  if(ph&&users[ph]){enter(ph)}
+  else{document.getElementById('auth').style.display='';authMode(Object.keys(users).length?'login':'signup')}
+})();
 </script>
 </body>
 </html>
